@@ -23,14 +23,18 @@ import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.View;
 import android.view.TextureView;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import org.opencv.core.Mat;
+import org.opencv.imgproc.Imgproc;
 import org.w3c.dom.Text;
 
 import java.io.File;
@@ -44,10 +48,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
+import static org.opencv.core.CvType.CV_8UC1;
+import static org.opencv.imgproc.Imgproc.cvtColor;
+
 public class MainActivity extends AppCompatActivity {
 
     private Button btnCapture;
     private TextureView textureView;
+    private TextView textView;
 
     // Orientation state of the output image
     private static final SparseIntArray Orientations = new SparseIntArray();
@@ -58,17 +66,20 @@ public class MainActivity extends AppCompatActivity {
         Orientations.append(Surface.ROTATION_270, 180);
     }
 
+    // Image processing variables
+    private static final int threshold = 2;
+
+    // Camera variables
     private String cameraId;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
     private CaptureRequest.Builder captureRequestBuilder;
     private Size imageDimension;
     private ImageReader imageReader;
+    private ImageReader.OnImageAvailableListener mImageReaderListener;
 
-    // Save to File (To be changed to matrix later)
-    private File file;
+    // Camera callback
     private static final int REQUEST_CAMERA_PERMISSION = 200;
-    private boolean mFlashSupported;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
 
@@ -99,138 +110,133 @@ public class MainActivity extends AppCompatActivity {
         textureView = (TextureView)findViewById(R.id.textureView);
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
+        textView = (TextView)findViewById(R.id.textView);
         /*btnCapture = (Button)findViewById(R.id.btnCapture);
         btnCapture.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view)
             {
-                takePicture();
+                Image image = imageReader.acquireLatestImage();
+
+                // Call detect object function after preview is successfully updated
+                int threshold = 2;
+                int numFound = detectObject(image, threshold);
+
+                Log.d("Circle Detection", numFound + " circles found.");
+                if(numFound > threshold)
+                {
+                    Log.d("Circle Detection", "More than " + threshold + "circles found.");
+                    textView.setVisibility(View.VISIBLE);
+                    textView.setText("More than " + threshold + " circles found.");
+                }
+                else
+                {
+                    Log.d("Circle Detection", "Less than " + threshold + " circles found.");
+                    textView.setVisibility(View.INVISIBLE);
+                    textView.setText("");
+                }
             }
         });*/
     }
 
-    /*private void takePicture() {
+    private int detectObject(Image image, final int threshold) {
         if(cameraDevice == null)
         {
-            return;
+            return 0;
         }
 
+        final int[] res = {0};
         CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
-        try{
+        try {
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraDevice.getId());
             Size[] jpegSizes = null;
-            if(characteristics != null)
-            {
-                jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
+            if(characteristics != null) {
+                jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.YUV_420_888);
 
                 // Default size if size capture fails
                 int width = 640;
                 int height = 480;
-                if(jpegSizes != null && jpegSizes.length > 0)
-                {
+                if (jpegSizes != null && jpegSizes.length > 0) {
                     width = jpegSizes[0].getWidth();
                     height = jpegSizes[0].getHeight();
                 }
-
-                final ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
                 List<Surface> outputSurface = new ArrayList<>(2);
-                outputSurface.add(reader.getSurface());
+                outputSurface.add(imageReader.getSurface());
                 outputSurface.add(new Surface(textureView.getSurfaceTexture()));
 
                 final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                captureBuilder.addTarget(reader.getSurface());
+                captureBuilder.addTarget(imageReader.getSurface());
                 captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
                 // Check device base orientation
                 int rotation = getWindowManager().getDefaultDisplay().getRotation();
                 captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, Orientations.get(rotation));
 
-                UUID uuid = UUID.randomUUID();
-                String randomUUIDString = uuid.toString();
-
-                file = new File(Environment.getExternalStorageDirectory() + "/" + randomUUIDString + ".jpg");
                 ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                     @Override
-                    public void onImageAvailable(ImageReader imageReader) {
+                    public void onImageAvailable(ImageReader reader) {
                         Image image = null;
                         try {
-                            image = reader.acquireLatestImage();
-                            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                            byte[] bytes = new byte[buffer.capacity()];
-                            buffer.get(bytes);
-                            save(bytes);
-                        } catch (FileNotFoundException e)
-                        {
-                            e.printStackTrace();
-                        } catch (IOException e)
-                        {
+                            image = imageReader.acquireLatestImage();
+                            if (image != null) {
+                                byte[] nv21;
+                                ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+                                ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
+                                ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
+
+                                int ySize = yBuffer.remaining();
+                                int uSize = uBuffer.remaining();
+                                int vSize = vBuffer.remaining();
+
+                                nv21 = new byte[ySize + uSize + vSize];
+
+                                //U and V are swapped
+                                yBuffer.get(nv21, 0, ySize);
+                                vBuffer.get(nv21, ySize, vSize);
+                                uBuffer.get(nv21, ySize + vSize, uSize);
+
+                                Mat mRGB = getYUV2Mat(nv21, image);
+
+                                res[0] = objectDetectNat(mRGB.getNativeObjAddr(), threshold);
+                            }
+                        } catch (Exception e) {
                             e.printStackTrace();
                         } finally {
                             {
-                                if(image != null)
-                                {
+                                if (image != null) {
                                     image.close();
                                 }
                             }
                         }
                     }
-
-                    private void save(byte[] bytes) throws IOException {
-                        OutputStream outputStream = null;
-                        try {
-                            outputStream = new FileOutputStream(file);
-                            outputStream.write(bytes);
-                        } finally {
-                            if(outputStream != null) {
-                                outputStream.close();
-                            }
-                        }
-                    }
                 };
-
-                reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
-                final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
-                    @Override
-                    public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-                        super.onCaptureCompleted(session, request, result);
-                        Toast.makeText(MainActivity.this, "Saved " + file, Toast.LENGTH_SHORT).show();
-
-                        createCameraPreview();
-                    }
-                };
-
-                cameraDevice.createCaptureSession(outputSurface, new CameraCaptureSession.StateCallback() {
-                    @Override
-                    public void onConfigured(CameraCaptureSession session) {
-                        try {
-                            cameraCaptureSession.capture(captureBuilder.build(), captureListener, mBackgroundHandler);
-                        } catch (CameraAccessException e) {
-                            e.printStackTrace();
-                        }
-                    }
-
-                    @Override
-                    public void onConfigureFailed(CameraCaptureSession session) {
-
-                    }
-                }, mBackgroundHandler);
+                imageReader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
             }
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
-    }*/
+
+        return res[0];
+    }
 
     private void createCameraPreview() {
         try {
             SurfaceTexture texture = textureView.getSurfaceTexture();
             assert texture != null;
 
+            List surfaces = new ArrayList();
+
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
-            Surface surface = new Surface(texture);
+            Surface previewSurface = new Surface(texture);
+            surfaces.add(previewSurface);
+
+            Surface readerSurface = imageReader.getSurface();
+            surfaces.add(readerSurface);
 
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            captureRequestBuilder.addTarget(surface);
-            cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+            captureRequestBuilder.addTarget(previewSurface);
+            captureRequestBuilder.addTarget(readerSurface);
+            cameraDevice.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(CameraCaptureSession session) {
                     if(cameraDevice == null)
@@ -286,6 +292,48 @@ public class MainActivity extends AppCompatActivity {
 
                 return;
             }
+
+            Size[] jpegSizes = null;
+            jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.YUV_420_888);
+
+            // Default size if size capture fails
+            int width = 640;
+            int height = 480;
+            if (jpegSizes != null && jpegSizes.length > 0) {
+                width = jpegSizes[0].getWidth();
+                height = jpegSizes[0].getHeight();
+            }
+            imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 1);
+            mImageReaderListener = new ImageReader.OnImageAvailableListener() {
+                @Override
+                public void onImageAvailable(ImageReader reader) {
+                    Image image = reader.acquireLatestImage();
+                    if(image != null)
+                    {
+                        final int numFound = detectObject(image, threshold);
+
+                        Log.d("Circle Detection", numFound + " circles found.");
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if(numFound > threshold)
+                                {
+                                    Log.d("Circle Detection", "More than " + threshold + "circles found.");
+                                    textView.setVisibility(View.VISIBLE);
+                                    textView.setText("More than " + threshold + " circles found.");
+                                }
+                                else
+                                {
+                                    Log.d("Circle Detection", "Less than " + threshold + " circles found.");
+                                    textView.setVisibility(View.INVISIBLE);
+                                    textView.setText("");
+                                }
+                            }
+                        });
+                    }
+                }
+            };
+            imageReader.setOnImageAvailableListener(mImageReaderListener, mBackgroundHandler);
 
             manager.openCamera(cameraId, stateCallBack, null);
         } catch (CameraAccessException e) {
@@ -364,4 +412,15 @@ public class MainActivity extends AppCompatActivity {
         mBackgroundThread.start();
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
+
+    public Mat getYUV2Mat(byte[] data, Image image) {
+        Mat mYuv = new Mat(image.getHeight() + image.getHeight() / 2, image.getWidth(), CV_8UC1);
+        mYuv.put(0, 0, data);
+        Mat mRGB = new Mat();
+        cvtColor(mYuv, mRGB, Imgproc.COLOR_YUV2RGB_NV21, 3);
+
+        return mRGB;
+    }
+
+    public native int objectDetectNat(long _image, int threshold);
 }

@@ -6,7 +6,7 @@
 cmake_minimum_required(VERSION 3.4.1)
 
 # [EDIT] Set Path to OpenCV and include the directories
-set(pathToProject ../../Scanner2)
+set(pathToProject K:/DigiPen/Netvirta/Netvirta_Challenge_Project_Sihao_2/Scanner2)
 set(pathToOpenCV ../../OpenCV-android-sdk)
 include_directories(${pathToOpenCV}/sdk/native/jni/include)
 
