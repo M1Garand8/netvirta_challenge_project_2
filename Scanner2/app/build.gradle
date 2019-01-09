@@ -18,7 +18,7 @@ android {
     }
     sourceSets {
         main {
-            jniLibs.srcDirs = ['K:/DigiPen/Netvirta/Netvirta_Challenge_Project_Sihao_2/Scanner2/app/src/main/jniLibs'] //EDIT: Use your custom location to jniLibs. Path given is only for example purposes.
+            jniLibs.srcDirs = ['./src/main/jniLibs']
         }
     }
     buildTypes {
