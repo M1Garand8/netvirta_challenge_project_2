@@ -33,6 +33,9 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
 import org.opencv.imgproc.Imgproc;
 import org.w3c.dom.Text;
@@ -52,6 +55,9 @@ import static org.opencv.core.CvType.CV_8UC1;
 import static org.opencv.imgproc.Imgproc.cvtColor;
 
 public class MainActivity extends AppCompatActivity {
+
+    private String OCVTag = "OCV";
+    private String CirDetTag = OCVTag + "_Circle_Detection";
 
     private Button btnCapture;
     private TextureView textureView;
@@ -82,6 +88,22 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
+
+    private BaseLoaderCallback  mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS:
+                {
+                    Log.i(OCVTag, "OpenCV loaded successfully");
+                } break;
+                default:
+                {
+                    super.onManagerConnected(status);
+                } break;
+            }
+        }
+    };
 
     CameraDevice.StateCallback stateCallBack = new CameraDevice.StateCallback() {
         @Override
@@ -145,7 +167,9 @@ public class MainActivity extends AppCompatActivity {
             return 0;
         }
 
-        final int[] res = {0};
+        int res = 0;
+
+        /*final int[] res = {0};
         CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
         try {
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraDevice.getId());
@@ -199,8 +223,9 @@ public class MainActivity extends AppCompatActivity {
 
                                 res[0] = objectDetectNat(mRGB.getNativeObjAddr(), threshold);
                             }
-                        } catch (Exception e) {
-                            e.printStackTrace();
+                        } catch (IllegalStateException e) {
+                            Log.e(OCVCirDetTag, "Too many images queued for saving, dropping image for request: ");
+                            return;
                         } finally {
                             {
                                 if (image != null) {
@@ -214,9 +239,31 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (CameraAccessException e) {
             e.printStackTrace();
-        }
+        }*/
 
-        return res[0];
+        byte[] nv21;
+        ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+        ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
+        ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
+
+        int ySize = yBuffer.remaining();
+        int uSize = uBuffer.remaining();
+        int vSize = vBuffer.remaining();
+
+        nv21 = new byte[ySize + uSize + vSize];
+
+        //U and V are swapped
+        yBuffer.get(nv21, 0, ySize);
+        vBuffer.get(nv21, ySize, vSize);
+        uBuffer.get(nv21, ySize + vSize, uSize);
+
+        Mat mRGB = getYUV2Mat(nv21, image);
+
+        res = objectDetectNat(mRGB.getNativeObjAddr(), threshold);
+
+        image.close();
+
+        return res;
     }
 
     private void createCameraPreview() {
@@ -286,8 +333,7 @@ public class MainActivity extends AppCompatActivity {
             if(ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
             {
                 ActivityCompat.requestPermissions(this, new String[] {
-                        Manifest.permission.CAMERA,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        Manifest.permission.CAMERA
                 }, REQUEST_CAMERA_PERMISSION);
 
                 return;
@@ -312,19 +358,19 @@ public class MainActivity extends AppCompatActivity {
                     {
                         final int numFound = detectObject(image, threshold);
 
-                        Log.d("Circle Detection", numFound + " circles found.");
+                        Log.d(CirDetTag, numFound + " circles found.");
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
                                 if(numFound > threshold)
                                 {
-                                    Log.d("Circle Detection", "More than " + threshold + "circles found.");
+                                    Log.d(CirDetTag, "More than " + threshold + "circles found.");
                                     textView.setVisibility(View.VISIBLE);
                                     textView.setText("More than " + threshold + " circles found.");
                                 }
                                 else
                                 {
-                                    Log.d("Circle Detection", "Less than " + threshold + " circles found.");
+                                    Log.d(CirDetTag, "Less than " + threshold + " circles found.");
                                     textView.setVisibility(View.INVISIBLE);
                                     textView.setText("");
                                 }
@@ -378,6 +424,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(OCVTag, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+        } else {
+            Log.d(OCVTag, "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+
+
         startBackgroundThread();
         if(textureView.isAvailable())
         {
