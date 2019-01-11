@@ -9,13 +9,23 @@
         android:layout_height="match_parent"/>
 
     <TextView
-        android:id="@+id/textView"
+        android:id="@+id/thresholdText"
         android:background="#FFFFFF"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_centerHorizontal="true"
         android:layout_marginTop="36dp"
+        android:text=""/>
+
+    <TextView
+        android:id="@+id/numObjText"
+        android:background="#FFFFFF"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="76dp"
         android:text=""/>
 
     <!--<Button

@@ -56,12 +56,18 @@ import static org.opencv.imgproc.Imgproc.cvtColor;
 
 public class MainActivity extends AppCompatActivity {
 
+    // Used to load the 'native-lib' library on application startup.
+    static {
+        System.loadLibrary("native-lib");
+    }
+
     private String OCVTag = "OCV";
     private String CirDetTag = OCVTag + "_Circle_Detection";
 
     private Button btnCapture;
     private TextureView textureView;
-    private TextView textView;
+    private TextView thresholdText;
+    private TextView numObjText;
 
     // Orientation state of the output image
     private static final SparseIntArray Orientations = new SparseIntArray();
@@ -73,7 +79,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // Image processing variables
-    private static final int threshold = 2;
+    private static final int threshold = 1;
 
     // Camera variables
     private String cameraId;
@@ -132,7 +138,8 @@ public class MainActivity extends AppCompatActivity {
         textureView = (TextureView)findViewById(R.id.textureView);
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
-        textView = (TextView)findViewById(R.id.textView);
+        thresholdText = (TextView)findViewById(R.id.thresholdText);
+        numObjText = (TextView)findViewById(R.id.numObjText);
         /*btnCapture = (Button)findViewById(R.id.btnCapture);
         btnCapture.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -358,21 +365,24 @@ public class MainActivity extends AppCompatActivity {
                     {
                         final int numFound = detectObject(image, threshold);
 
-                        Log.d(CirDetTag, numFound + " circles found.");
+                        final String numObjFoundTxt = numFound + " circles found.";
+                        Log.d(CirDetTag, numObjFoundTxt);
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
+                                numObjText.setText(numObjFoundTxt);
+
                                 if(numFound > threshold)
                                 {
                                     Log.d(CirDetTag, "More than " + threshold + "circles found.");
-                                    textView.setVisibility(View.VISIBLE);
-                                    textView.setText("More than " + threshold + " circles found.");
+                                    thresholdText.setVisibility(View.VISIBLE);
+                                    thresholdText.setText("More than " + threshold + " circles found.");
                                 }
                                 else
                                 {
                                     Log.d(CirDetTag, "Less than " + threshold + " circles found.");
-                                    textView.setVisibility(View.INVISIBLE);
-                                    textView.setText("");
+                                    thresholdText.setVisibility(View.INVISIBLE);
+                                    thresholdText.setText("");
                                 }
                             }
                         });
@@ -477,5 +487,6 @@ public class MainActivity extends AppCompatActivity {
         return mRGB;
     }
 
+    public native String stringFromJNI();
     public native int objectDetectNat(long _image, int threshold);
 }
